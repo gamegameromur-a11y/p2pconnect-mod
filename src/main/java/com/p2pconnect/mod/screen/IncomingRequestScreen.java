@@ -40,9 +40,11 @@ public class IncomingRequestScreen extends Screen {
     private void accept() {
         PendingState.pendingAutoHostForRequester = fromUsername;
         Minecraft mc = Minecraft.getInstance();
-        // Vanilla "Yeni Dünya Oluştur" ekranını açıyoruz; kullanıcı dünyayı
-        // oluşturup oyuna girdiği an AutoHostTrigger devreye girecek.
-        mc.setScreen(CreateWorldScreen.openFresh(mc, null));
+        // Vanilla "Yeni Dünya Oluştur" ekranını açıyoruz; CreateWorldScreen.openFresh
+        // 1.20.1'de void döner ve ekranı zaten kendi içinde mc.setScreen ile açar,
+        // bu yüzden dönüş değerini tekrar setScreen'e sarmıyoruz. Dünya oluşturulup
+        // oyuna girildiği an AutoHostTrigger devreye girecek.
+        CreateWorldScreen.openFresh(mc, null);
     }
 
     private void deny() {

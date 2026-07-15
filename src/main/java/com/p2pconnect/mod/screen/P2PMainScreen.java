@@ -1,0 +1,90 @@
+package com.p2pconnect.mod.screen;
+
+import com.p2pconnect.mod.P2PConnectMod;
+import com.p2pconnect.mod.util.ClientConfig;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+
+public class P2PMainScreen extends Screen {
+
+    private final Screen parent;
+    private static boolean listeningForRequests = false; // process ömrü boyunca bir kere kurulur
+    private String statusText = "Bağlanıyor...";
+
+    public P2PMainScreen(Screen parent) {
+        super(Component.literal("P2P Connect"));
+        this.parent = parent;
+    }
+
+    @Override
+    protected void init() {
+        ensureMqttConnected();
+
+        this.addRenderableWidget(Button.builder(Component.literal("Sunucu Aç (Host)"), b ->
+                        Minecraft.getInstance().setScreen(new HostScreen(this)))
+                .bounds(this.width / 2 - 100, this.height / 2 - 30, 200, 20)
+                .build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Arkadaşa Bağlan (Join)"), b ->
+                        Minecraft.getInstance().setScreen(new JoinScreen(this)))
+                .bounds(this.width / 2 - 100, this.height / 2 - 4, 200, 20)
+                .build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Kullanıcı Adını Değiştir (" + ClientConfig.username + ")"), b ->
+                        Minecraft.getInstance().setScreen(new UsernamePromptScreen(parent)))
+                .bounds(this.width / 2 - 100, this.height / 2 + 22, 200, 20)
+                .build());
+
+        this.addRenderableWidget(Button.builder(Component.literal("Geri"), this::onClosePressed)
+                .bounds(this.width / 2 - 100, this.height / 2 + 48, 200, 20)
+                .build());
+    }
+
+    private void ensureMqttConnected() {
+        if (P2PConnectMod.MQTT.isConnected()) {
+            statusText = "Bağlı: " + ClientConfig.mqttBrokerUrl;
+            startListeningIfNeeded();
+            return;
+        }
+        statusText = "Broker'a bağlanılıyor...";
+        P2PConnectMod.MQTT.connect(ClientConfig.mqttBrokerUrl,
+                () -> {
+                    statusText = "Bağlandı!";
+                    startListeningIfNeeded();
+                },
+                err -> statusText = "Hata: " + err);
+    }
+
+    /** Gelen istekleri dinlemeye SADECE BİR KERE başlanır - sonra oyun kapanana kadar aktif kalır. */
+    private void startListeningIfNeeded() {
+        if (listeningForRequests) return;
+        listeningForRequests = true;
+        P2PConnectMod.MQTT.listenForRequests(ClientConfig.username, request -> {
+            if (request == null) return;
+            String from = request.has("from") ? request.get("from").getAsString() : "Bilinmeyen";
+            // MQTT callback'i ayrı bir thread'de gelir, ekranı Minecraft ana thread'inde açmalıyız
+            Minecraft.getInstance().execute(() ->
+                    Minecraft.getInstance().setScreen(new IncomingRequestScreen(from)));
+        });
+    }
+
+    private void onClosePressed(Button b) {
+        onClose();
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        this.renderBackground(graphics);
+        graphics.drawCenteredString(this.font, "P2P Connect", this.width / 2, this.height / 2 - 60, 0xFFFFFF);
+        graphics.drawCenteredString(this.font, statusText, this.width / 2, this.height / 2 - 48, 0xAAAAAA);
+        super.render(graphics, mouseX, mouseY, partialTick);
+    }
+
+    @Override
+    public void onClose() {
+        Minecraft.getInstance().setScreen(parent);
+    }
+}

@@ -2,7 +2,14 @@ plugins {
     id 'eclipse'
     id 'idea'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
-    id 'com.gradleup.shadow' version '8.3.0'
+    // NOT: 'com.gradleup.shadow' plugin ID'si ancak sürüm 8.3.0'da tanıtıldı
+    // (öncesinde proje adı com.github.johnrengelman.shadow idi). 8.3.0+ ayrıca
+    // min Gradle 8.3 istiyor (Shadow changelog: "Bump the min Gradle requirement
+    // from 8.0.0 to 8.3"), ama ForgeGradle 6.0-6.2 (yukarıdaki plugin) resmi
+    // olarak Gradle 8.1.1'i hedefliyor ve Gradle 9+'ı desteklemiyor. Bu yüzden
+    // 8.1.1 döneminin doğru ID+sürüm kombinasyonunu kullanıyoruz.
+    // GERÇEK CI ÇALIŞMASINDA BULUNDU.
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 version = '1.0.0'

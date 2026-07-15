@@ -11,13 +11,17 @@ import net.minecraft.client.multiplayer.resolver.ServerAddress;
  * göre değişebilir (1.20.1'de aşağıdaki 5 parametreli hali geçerlidir; daha
  * yeni sürümlerde "quick play"/cookie parametreleri eklendi). Derleme hatası
  * alırsan IDE'de ConnectScreen sınıfına gidip doğru overload'u kullan.
+ *
+ * NOT 2: ServerData sınıfında "Type" adlı bir nested enum YOKTUR (1.16.5'ten
+ * 1.21'e kadar hiçbir sürümde bu yok). Gerçek constructor:
+ * ServerData(String name, String ip, boolean isLan)
  */
 public class ConnectUtil {
 
     public static void connect(Screen currentScreen, String hostAndPort, String displayName) {
         Minecraft mc = Minecraft.getInstance();
         ServerAddress address = ServerAddress.parseString(hostAndPort);
-        ServerData serverData = new ServerData(displayName == null ? hostAndPort : displayName, hostAndPort, ServerData.Type.OTHER);
+        ServerData serverData = new ServerData(displayName == null ? hostAndPort : displayName, hostAndPort, false);
         ConnectScreen.startConnecting(currentScreen, mc, address, serverData, false);
     }
 }

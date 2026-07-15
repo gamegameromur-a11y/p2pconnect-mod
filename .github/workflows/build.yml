@@ -18,14 +18,24 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # ÖNEMLİ: setup-gradle varsayılan olarak en son Gradle'ı (9.x) kurar, ama
+      # ForgeGradle 6.0-6.2 (build.gradle'da kullanılan plugin) Gradle 9+'ı
+      # desteklemiyor ve plugin uygulama aşamasında (build.gradle satır 4)
+      # "EnvironmentCheckFailedException: Gradle 9.0 and newer are not
+      # supported yet" hatasıyla build'i başlamadan durduruyor. GERÇEK CI
+      # ÇALIŞMASINDA BULUNDU. Bu yüzden Gradle sürümünü ForgeGradle 6 MDK'larının
+      # standart olarak geldiği 8.1.1'e sabitliyoruz.
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.1.1'
 
       # Bu repo'da gradlew/gradlew.bat/gradle/wrapper yok (ForgeGradle MDK'sinden
       # gelmesi gerekiyordu, binary olduğu için burada üretilmedi). setup-gradle
       # action'ı 'gradle' komutunu doğrudan kullanabilir, wrapper'a ihtiyaç
       # duymadan. Eğer ileride gradlew eklenirse bu adımı "./gradlew build"
-      # olarak değiştirebilirsin.
+      # olarak değiştirebilirsin (gradlew kendi gradle-wrapper.properties'inden
+      # sürümü zaten doğru okur).
       - name: Build with Gradle
         run: gradle build --stacktrace --no-daemon
 

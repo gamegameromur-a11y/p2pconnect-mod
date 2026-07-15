@@ -1,0 +1,97 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'com.gradleup.shadow' version '8.3.0'
+}
+
+version = '1.0.0'
+group = 'com.p2pconnect'
+
+base {
+    archivesName = 'p2pconnect'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
+
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+
+    // Client çalıştırma konfigürasyonu (geliştirme sırasında test için)
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                p2pconnect {
+                    source sourceSets.main
+                }
+            }
+        }
+        server {
+            workingDirectory project.file('run-server')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods {
+                p2pconnect {
+                    source sourceSets.main
+                }
+            }
+        }
+    }
+}
+
+// "shadedApi" adında ayrı bir konfigürasyon: bağımlılıkları jar içine gömmek için (OkHttp, Gson zaten MC'de var)
+configurations {
+    shadedApi
+    implementation.extendsFrom shadedApi
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.minecraftforge.net/' }
+    maven { url = 'https://repo.eclipse.org/content/repositories/paho-releases/' }
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.3.0'
+
+    // Herkese açık MQTT broker'ı ile eşleştirme/istek sistemi için - jar içine gömülecek
+    shadedApi 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
+}
+
+// Paho MQTT ve bağımlılıklarını mod jar'ının içine göm (relocate ederek çakışmaları önle)
+shadowJar {
+    configurations = [project.configurations.shadedApi]
+    archiveClassifier.set('all')
+    relocate 'org.eclipse.paho', 'com.p2pconnect.shaded.paho'
+}
+
+// reobf (Forge'un kendi remap sistemi) shadowJar çıktısını işlesin
+reobf {
+    shadowJar {}
+}
+
+tasks.build.dependsOn tasks.shadowJar
+
+tasks.named('processResources', ProcessResources).configure {
+    var replaceProperties = [
+            minecraft_version: '1.20.1', minecraft_version_range: '[1.20.1,1.21)',
+            forge_version: '47.3.0', forge_version_range: '[47,)',
+            loader_version_range: '[47,)',
+            mod_id: 'p2pconnect', mod_name: 'P2P Connect',
+            mod_license: 'MIT', mod_version: project.version,
+            mod_authors: 'Sen', mod_description: 'Bore tabanlı P2P multiplayer bağlantı modu'
+    ]
+    inputs.properties replaceProperties
+    filesMatching(['META-INF/mods.toml']) {
+        expand replaceProperties + [project: project]
+    }
+}
+
+test {
+    useJUnitPlatform()
+}

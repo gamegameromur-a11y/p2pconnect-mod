@@ -1,0 +1,48 @@
+name: Build P2P Connect Mod
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Bu repo'da gradlew/gradlew.bat/gradle/wrapper yok (ForgeGradle MDK'sinden
+      # gelmesi gerekiyordu, binary olduğu için burada üretilmedi). setup-gradle
+      # action'ı 'gradle' komutunu doğrudan kullanabilir, wrapper'a ihtiyaç
+      # duymadan. Eğer ileride gradlew eklenirse bu adımı "./gradlew build"
+      # olarak değiştirebilirsin.
+      - name: Build with Gradle
+        run: gradle build --stacktrace --no-daemon
+
+      - name: Upload built jar
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2pconnect-jar
+          path: build/libs/*.jar
+          if-no-files-found: warn
+
+      - name: Upload full build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build/reports/**
+            build/*.log
+          if-no-files-found: ignore

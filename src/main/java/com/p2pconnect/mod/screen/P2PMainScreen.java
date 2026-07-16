@@ -11,8 +11,8 @@ import net.minecraft.network.chat.Component;
 public class P2PMainScreen extends Screen {
 
     private final Screen parent;
-    private static boolean listeningForRequests = false; // process ömrü boyunca bir kere kurulur
-    private String statusText = "Bağlanıyor...";
+    private static boolean listeningForRequests = false; // set up once per game session, then stays active
+    private String statusText = "Connecting...";
 
     public P2PMainScreen(Screen parent) {
         super(Component.literal("P2P Connect"));
@@ -23,51 +23,54 @@ public class P2PMainScreen extends Screen {
     protected void init() {
         ensureMqttConnected();
 
-        this.addRenderableWidget(Button.builder(Component.literal("Sunucu Aç (Host)"), b ->
+        this.addRenderableWidget(Button.builder(Component.literal("Start Broadcast (Host)"), b ->
                         Minecraft.getInstance().setScreen(new HostScreen(this)))
                 .bounds(this.width / 2 - 100, this.height / 2 - 30, 200, 20)
                 .build());
 
-        this.addRenderableWidget(Button.builder(Component.literal("Arkadaşa Bağlan (Join)"), b ->
+        this.addRenderableWidget(Button.builder(Component.literal("Connect to a Friend (Join)"), b ->
                         Minecraft.getInstance().setScreen(new JoinScreen(this)))
                 .bounds(this.width / 2 - 100, this.height / 2 - 4, 200, 20)
                 .build());
 
-        this.addRenderableWidget(Button.builder(Component.literal("Kullanıcı Adını Değiştir (" + ClientConfig.username + ")"), b ->
-                        Minecraft.getInstance().setScreen(new UsernamePromptScreen(parent)))
+        this.addRenderableWidget(Button.builder(Component.literal("Change Username (" + ClientConfig.username + ")"), b ->
+                        // Return to this screen afterwards, not all the way back to the multiplayer
+                        // list - previously this passed `parent`, which skipped back past this menu.
+                        Minecraft.getInstance().setScreen(new UsernamePromptScreen(this)))
                 .bounds(this.width / 2 - 100, this.height / 2 + 22, 200, 20)
                 .build());
 
-        this.addRenderableWidget(Button.builder(Component.literal("Geri"), this::onClosePressed)
+        this.addRenderableWidget(Button.builder(Component.literal("Back"), this::onClosePressed)
                 .bounds(this.width / 2 - 100, this.height / 2 + 48, 200, 20)
                 .build());
     }
 
     private void ensureMqttConnected() {
         if (P2PConnectMod.MQTT.isConnected()) {
-            statusText = "Bağlı: " + ClientConfig.mqttBrokerUrl;
+            statusText = "Connected: " + ClientConfig.mqttBrokerUrl;
             startListeningIfNeeded();
             return;
         }
-        statusText = "Broker'a bağlanılıyor...";
+        statusText = "Connecting to broker...";
         P2PConnectMod.MQTT.connect(ClientConfig.mqttBrokerUrl,
                 () -> {
-                    statusText = "Bağlandı!";
+                    statusText = "Connected!";
                     startListeningIfNeeded();
                 },
-                err -> statusText = "Hata: " + err);
+                err -> statusText = "Error: " + err);
     }
 
-    /** Gelen istekleri dinlemeye SADECE BİR KERE başlanır - sonra oyun kapanana kadar aktif kalır. */
+    /** Listening for incoming requests is set up ONLY ONCE - then stays active until the game closes. */
     private void startListeningIfNeeded() {
         if (listeningForRequests) return;
         listeningForRequests = true;
         P2PConnectMod.MQTT.listenForRequests(ClientConfig.username, request -> {
             if (request == null) return;
-            String from = request.has("from") ? request.get("from").getAsString() : "Bilinmeyen";
-            // MQTT callback'i ayrı bir thread'de gelir, ekranı Minecraft ana thread'inde açmalıyız
+            String from = request.has("from") ? request.get("from").getAsString() : "Unknown";
+            String password = request.has("password") ? request.get("password").getAsString() : null;
+            // The MQTT callback arrives on a background thread - the screen has to be opened on the Minecraft main thread.
             Minecraft.getInstance().execute(() ->
-                    Minecraft.getInstance().setScreen(new IncomingRequestScreen(from)));
+                    Minecraft.getInstance().setScreen(new IncomingRequestScreen(from, password)));
         });
     }
 

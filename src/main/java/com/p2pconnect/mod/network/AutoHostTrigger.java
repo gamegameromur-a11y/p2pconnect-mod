@@ -7,10 +7,11 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 /**
- * "Kabul Et" dendikten sonra kullanıcı dünya oluşturma ekranına yönlendirilir.
- * Dünya oluşup gerçekten oyun içine girildiğinde (mc.level != null, integrated
- * server hazır) bu sınıf bunu tespit edip otomatik olarak LAN + bore + MQTT
- * yayınını başlatır ve istek sahibine bağlantı bilgisini yollar.
+ * After accepting a request (or using "Start Broadcast" without a world
+ * already open), the player is sent to pick or create a world. Once a world
+ * actually finishes loading (mc.level != null, integrated server ready),
+ * this class detects it and automatically starts the LAN + bore + MQTT
+ * broadcast - responding to the requester over MQTT if there was one.
  */
 public class AutoHostTrigger {
 
@@ -19,20 +20,24 @@ public class AutoHostTrigger {
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
-        if (PendingState.pendingAutoHostForRequester == null) return;
         if (triggering) return;
+
+        boolean hasRequester = PendingState.pendingAutoHostForRequester != null;
+        boolean manualPending = PendingState.pendingManualHost;
+        if (!hasRequester && !manualPending) return;
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.level != null && mc.getSingleplayerServer() != null && mc.player != null) {
             triggering = true;
             String requester = PendingState.pendingAutoHostForRequester;
             PendingState.pendingAutoHostForRequester = null;
+            PendingState.pendingManualHost = false;
 
             HostingUtil.startHostingCurrentWorld(requester,
                     id -> triggering = false,
                     error -> {
                         triggering = false;
-                        mc.player.displayClientMessage(Component.literal("§c[P2P Connect] Otomatik host başlatılamadı: " + error), false);
+                        mc.player.displayClientMessage(Component.literal("§c[P2P Connect] Could not start automatic hosting: " + error), false);
                     });
         }
     }

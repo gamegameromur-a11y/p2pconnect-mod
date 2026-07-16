@@ -2,13 +2,13 @@ plugins {
     id 'eclipse'
     id 'idea'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
-    // NOT: 'com.gradleup.shadow' plugin ID'si ancak sürüm 8.3.0'da tanıtıldı
-    // (öncesinde proje adı com.github.johnrengelman.shadow idi). 8.3.0+ ayrıca
-    // min Gradle 8.3 istiyor (Shadow changelog: "Bump the min Gradle requirement
-    // from 8.0.0 to 8.3"), ama ForgeGradle 6.0-6.2 (yukarıdaki plugin) resmi
-    // olarak Gradle 8.1.1'i hedefliyor ve Gradle 9+'ı desteklemiyor. Bu yüzden
-    // 8.1.1 döneminin doğru ID+sürüm kombinasyonunu kullanıyoruz.
-    // GERÇEK CI ÇALIŞMASINDA BULUNDU.
+    // NOTE: the 'com.gradleup.shadow' plugin ID was only introduced in version
+    // 8.3.0 (the project used to be called com.github.johnrengelman.shadow).
+    // 8.3.0+ also requires min Gradle 8.3 (Shadow changelog: "Bump the min
+    // Gradle requirement from 8.0.0 to 8.3"), but ForgeGradle 6.0-6.2 (above)
+    // officially targets Gradle 8.1.1 and doesn't support Gradle 9+. So we use
+    // the correct ID+version combination from the 8.1.1 era instead.
+    // FOUND THIS OUT THE HARD WAY IN CI.
     id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
@@ -26,7 +26,7 @@ println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty '
 minecraft {
     mappings channel: 'official', version: '1.20.1'
 
-    // Client çalıştırma konfigürasyonu (geliştirme sırasında test için)
+    // Client run configuration (for testing during development)
     runs {
         client {
             workingDirectory project.file('run')
@@ -51,7 +51,7 @@ minecraft {
     }
 }
 
-// "shadedApi" adında ayrı bir konfigürasyon: bağımlılıkları jar içine gömmek için (OkHttp, Gson zaten MC'de var)
+// A separate "shadedApi" configuration: for bundling dependencies into the jar (OkHttp, Gson are already in MC)
 configurations {
     shadedApi
     implementation.extendsFrom shadedApi
@@ -66,18 +66,18 @@ repositories {
 dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.3.0'
 
-    // Herkese açık MQTT broker'ı ile eşleştirme/istek sistemi için - jar içine gömülecek
+    // For the matchmaking/request system over the public MQTT broker - gets bundled into the jar
     shadedApi 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
 }
 
-// Paho MQTT ve bağımlılıklarını mod jar'ının içine göm (relocate ederek çakışmaları önle)
+// Bundle Paho MQTT and its dependencies into the mod jar (relocated to avoid conflicts)
 shadowJar {
     configurations = [project.configurations.shadedApi]
     archiveClassifier.set('all')
     relocate 'org.eclipse.paho', 'com.p2pconnect.shaded.paho'
 }
 
-// reobf (Forge'un kendi remap sistemi) shadowJar çıktısını işlesin
+// Let reobf (Forge's own remapping system) process the shadowJar output
 reobf {
     shadowJar {}
 }
@@ -91,7 +91,7 @@ tasks.named('processResources', ProcessResources).configure {
             loader_version_range: '[47,)',
             mod_id: 'p2pconnect', mod_name: 'P2P Connect',
             mod_license: 'MIT', mod_version: project.version,
-            mod_authors: 'Sen', mod_description: 'Bore tabanlı P2P multiplayer bağlantı modu'
+            mod_authors: 'You', mod_description: 'A bore-based P2P multiplayer connection mod'
     ]
     inputs.properties replaceProperties
     filesMatching(['META-INF/mods.toml']) {

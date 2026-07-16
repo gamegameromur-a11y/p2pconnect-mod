@@ -8,11 +8,10 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 /**
- * Kullanıcı adı ve MQTT broker bilgilerini config/p2pconnect.properties
- * dosyasında saklar. Varsayılan olarak herkese açık HiveMQ test broker'ı
- * (broker.hivemq.com) kullanılır, hiçbir ek kurulum gerekmez - kullanıcı
- * isterse mqttBrokerUrl değerini kendi broker'ına çevirebilir (README.md
- * "Gizlilik / Güvenilirlik Notu" bölümüne bak).
+ * Stores the username, MQTT broker address, and hosting preferences in
+ * config/p2pconnect.properties. A public, unowned test broker
+ * (broker.hivemq.com) is used by default, so no extra setup is required -
+ * you can point mqttBrokerUrl at your own (also free) broker if you want.
  */
 public class ClientConfig {
 
@@ -20,9 +19,15 @@ public class ClientConfig {
     private static final Properties PROPS = new Properties();
 
     public static String username = "";
-    // Varsayılan olarak herkese açık HiveMQ test broker'ı kullanılır - kullanıcı
-    // isterse kendi (yine ücretsiz) broker adresini buraya yazabilir.
+    // Public HiveMQ test broker by default - point this at your own (still free)
+    // broker if you'd rather not share the default one with every other user.
     public static String mqttBrokerUrl = com.p2pconnect.mod.network.MqttService.DEFAULT_BROKER;
+
+    // --- Hosting / public server list preferences ---
+    // SHA-256 hash only - the plaintext password is never written to disk.
+    public static String adminPasswordHash = "";
+    public static String serverDescription = "";
+    public static boolean publicListingEnabled = false;
 
     public static void load() {
         try {
@@ -32,6 +37,9 @@ public class ClientConfig {
                 }
                 username = PROPS.getProperty("username", "");
                 mqttBrokerUrl = PROPS.getProperty("mqttBrokerUrl", com.p2pconnect.mod.network.MqttService.DEFAULT_BROKER);
+                adminPasswordHash = PROPS.getProperty("adminPasswordHash", "");
+                serverDescription = PROPS.getProperty("serverDescription", "");
+                publicListingEnabled = Boolean.parseBoolean(PROPS.getProperty("publicListingEnabled", "false"));
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -43,8 +51,11 @@ public class ClientConfig {
             Files.createDirectories(CONFIG_PATH.getParent());
             PROPS.setProperty("username", username);
             PROPS.setProperty("mqttBrokerUrl", mqttBrokerUrl);
+            PROPS.setProperty("adminPasswordHash", adminPasswordHash == null ? "" : adminPasswordHash);
+            PROPS.setProperty("serverDescription", serverDescription == null ? "" : serverDescription);
+            PROPS.setProperty("publicListingEnabled", String.valueOf(publicListingEnabled));
             try (var out = Files.newOutputStream(CONFIG_PATH)) {
-                PROPS.store(out, "P2P Connect ayarlari - kullanici adi ve MQTT broker adresi");
+                PROPS.store(out, "P2P Connect settings - username, MQTT broker address, hosting preferences");
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -53,5 +64,14 @@ public class ClientConfig {
 
     public static boolean hasUsername() {
         return username != null && !username.isBlank();
+    }
+
+    public static boolean hasAdminPassword() {
+        return adminPasswordHash != null && !adminPasswordHash.isEmpty();
+    }
+
+    /** Hashes and stores a new admin password. Pass an empty string to remove password protection. */
+    public static void setAdminPassword(String plain) {
+        adminPasswordHash = (plain == null || plain.isEmpty()) ? "" : AdminAuth.sha256Hex(plain);
     }
 }

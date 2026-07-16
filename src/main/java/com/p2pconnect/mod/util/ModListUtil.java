@@ -8,15 +8,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Yüklü Forge modlarının listesini "modid@versiyon" formatında çıkarır
- * ve iki liste arasındaki farkları (eksik/versiyon uyuşmazlığı) bulur.
+ * Extracts the list of installed Forge mods in "modid@version" format and
+ * finds the differences (missing / version mismatch) between two lists.
  */
 public class ModListUtil {
 
     public static List<String> getInstalledMods() {
         List<String> result = new ArrayList<>();
         for (var info : ModList.get().getMods()) {
-            // Forge/mcp/minecraft gibi çekirdek girişleri karşılaştırmadan hariç tutuyoruz
+            // Exclude core entries like forge/mcp/minecraft from the comparison
             if (info.getModId().equals("forge") || info.getModId().equals("minecraft")) continue;
             result.add(info.getModId() + "@" + info.getVersion().toString());
         }
@@ -24,9 +24,9 @@ public class ModListUtil {
     }
 
     public static class DiffResult {
-        public final List<String> missingOnMySide = new ArrayList<>();   // karşıda var, bende yok
-        public final List<String> extraOnMySide = new ArrayList<>();     // bende var, karşıda yok
-        public final List<String> versionMismatch = new ArrayList<>();   // ikisinde de var ama versiyon farklı
+        public final List<String> missingOnMySide = new ArrayList<>();   // they have it, I don't
+        public final List<String> extraOnMySide = new ArrayList<>();     // I have it, they don't
+        public final List<String> versionMismatch = new ArrayList<>();   // both have it, but versions differ
 
         public boolean isCompatible() {
             return missingOnMySide.isEmpty() && versionMismatch.isEmpty();
@@ -43,7 +43,7 @@ public class ModListUtil {
             if (!mine.containsKey(e.getKey())) {
                 diff.missingOnMySide.add(e.getKey() + "@" + e.getValue());
             } else if (!mine.get(e.getKey()).equals(e.getValue())) {
-                diff.versionMismatch.add(e.getKey() + " (ben: " + mine.get(e.getKey()) + ", karşı: " + e.getValue() + ")");
+                diff.versionMismatch.add(e.getKey() + " (mine: " + mine.get(e.getKey()) + ", theirs: " + e.getValue() + ")");
             }
         }
         for (var e : mine.entrySet()) {

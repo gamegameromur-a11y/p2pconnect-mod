@@ -12,23 +12,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * "bore" (https://github.com/ekzhang/bore) binary'sini alt process olarak
- * çalıştırıp local Minecraft server portunu bore.pub üzerinden herkese açık
- * hale getirir. Bore binary'sinin mod klasöründe (config/p2pconnect/bore
- * veya bore.exe) ya da sistem PATH'inde bulunması gerekir.
+ * Runs the "bore" (https://github.com/ekzhang/bore) binary as a subprocess
+ * to expose the local Minecraft server port publicly through bore.pub. The
+ * bore binary needs to be in the mod's config folder (config/p2pconnect/bore
+ * or bore.exe) or on the system PATH.
  *
- * Kullanım: bore local <localPort> --to bore.pub
- * Çıktısında şuna benzer bir satır basar: "listening at bore.pub:23456"
+ * Usage: bore local <localPort> --to bore.pub
+ * It prints a line like: "listening at bore.pub:23456"
  */
 public class BoreManager {
 
-    // "listening at bore.pub:23456" ya da kendi barındırdığın bir bore server ile
-    // "listening at 1.2.3.4:23456" satırından portu çeker. Host kısmını "bore.pub"
-    // ile sınırlamıyoruz ki kullanıcı kendi bore server'ını da kullanabilsin.
     private static final Pattern PORT_PATTERN = Pattern.compile("listening at [^:\\s]+:(\\d+)");
-    // bore'un ANSI renk kodlarını (ör. "\u001B[32m") satırlardan temizlemek için.
-    // GERÇEK TEST SIRASINDA BULUNDU: bore, çıktısı bir dosyaya/pipe'a yönlendirilmiş
-    // olsa bile renk kodlarını basmaya devam ediyor; bunları temizlemeden regex hiç eşleşmiyordu.
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*m");
 
     private Process boreProcess;
@@ -37,18 +31,13 @@ public class BoreManager {
         return boreProcess != null && boreProcess.isAlive();
     }
 
-    /**
-     * @param localPort      dışarı açılacak local Minecraft server portu (varsayılan 25565)
-     * @param onPortAssigned bore.pub tarafından atanan dış port geldiğinde çağrılır (Minecraft ana thread'inde DEĞİL - dikkat)
-     * @param onError        bir hata olursa (binary bulunamadı, process çöktü vs.) çağrılır
-     */
     public void start(int localPort, Consumer<Integer> onPortAssigned, Consumer<String> onError) {
         stop();
         try {
             String exe = findBoreExecutable();
             if (exe == null) {
-                onError.accept("bore binary bulunamadı. config/p2pconnect/bore(.exe) dosyasına koy ya da PATH'e ekle. "
-                        + "İndirme adresi: https://github.com/ekzhang/bore/releases");
+                onError.accept("Could not find the bore binary. Place it at config/p2pconnect/bore(.exe) "
+                        + "or add it to your PATH. Download: https://github.com/ekzhang/bore/releases");
                 return;
             }
 
@@ -74,14 +63,14 @@ public class BoreManager {
                         }
                     }
                 } catch (Exception e) {
-                    P2PConnectMod.LOGGER.warn("bore çıktısı okunurken hata: " + e.getMessage());
+                    P2PConnectMod.LOGGER.warn("Error reading bore output: " + e.getMessage());
                 }
             }, "bore-output-reader");
             readerThread.setDaemon(true);
             readerThread.start();
 
         } catch (Exception e) {
-            onError.accept("bore başlatılamadı: " + e.getMessage());
+            onError.accept("Could not start bore: " + e.getMessage());
         }
     }
 
@@ -96,20 +85,18 @@ public class BoreManager {
         String os = System.getProperty("os.name").toLowerCase();
         String fileName = os.contains("win") ? "bore.exe" : "bore";
 
-        // 1) config/p2pconnect/bore(.exe)
         Path local = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get()
                 .resolve("p2pconnect").resolve(fileName);
         if (Files.isExecutable(local) || Files.exists(local)) {
             return local.toAbsolutePath().toString();
         }
 
-        // 2) sistem PATH'i - "which/where" yerine doğrudan process ile dene
         try {
             ProcessBuilder test = new ProcessBuilder(fileName, "--version");
             test.redirectErrorStream(true);
             Process p = test.start();
             p.waitFor();
-            return fileName; // PATH üzerinden çalıştırılabilir
+            return fileName;
         } catch (Exception ignored) {
             return null;
         }

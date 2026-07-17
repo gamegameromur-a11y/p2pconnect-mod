@@ -8,6 +8,7 @@ import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -31,6 +32,16 @@ import java.util.function.Consumer;
  *
  * You can point config/p2pconnect.properties at your own broker if you'd
  * rather not share the default one.
+ *
+ * Reliability note: MqttConnectOptions.setAutomaticReconnect(true) makes the
+ * client reconnect on its own after a dropped connection, but with
+ * setCleanSession(true) (used below) the broker forgets all subscriptions on
+ * every reconnect - Paho does NOT resubscribe for you (see
+ * https://github.com/eclipse-paho/paho.mqtt.java/issues/493). Without
+ * handling that, a host whose connection blips would silently stop
+ * receiving join requests with no visible error. MqttCallbackExtended's
+ * connectComplete(reconnect, ...) is used below specifically to replay every
+ * tracked subscription after a reconnect.
  */
 public class MqttService {
 
@@ -39,10 +50,16 @@ public class MqttService {
 
     private MqttClient client;
     private final Gson gson = new Gson();
-    private final ConcurrentHashMap<String, IMqttMessageListener> subscriptions = new ConcurrentHashMap<>();
+    private final Map<String, IMqttMessageListener> subscriptions = new ConcurrentHashMap<>();
+    private volatile Runnable onReconnected;
 
     public boolean isConnected() {
         return client != null && client.isConnected();
+    }
+
+    /** Optional hook fired (on the MQTT client's own thread) whenever the client automatically reconnects after a drop. */
+    public void setOnReconnected(Runnable callback) {
+        this.onReconnected = callback;
     }
 
     public void connect(String brokerUrl, Runnable onConnected, Consumer<String> onError) {
@@ -55,9 +72,23 @@ public class MqttService {
             options.setAutomaticReconnect(true);
             options.setConnectionTimeout(10);
 
-            client.setCallback(new MqttCallback() {
+            client.setCallback(new MqttCallbackExtended() {
+                @Override public void connectComplete(boolean reconnect, String serverURI) {
+                    if (reconnect) {
+                        P2PConnectMod.LOGGER.info("MQTT reconnected to " + serverURI + " - resubscribing to " + subscriptions.size() + " topic(s)");
+                        for (var entry : subscriptions.entrySet()) {
+                            try {
+                                client.subscribe(entry.getKey(), 1, entry.getValue());
+                            } catch (Exception e) {
+                                P2PConnectMod.LOGGER.warn("Could not resubscribe to " + entry.getKey() + ": " + e.getMessage());
+                            }
+                        }
+                        Runnable hook = onReconnected;
+                        if (hook != null) hook.run();
+                    }
+                }
                 @Override public void connectionLost(Throwable cause) {
-                    P2PConnectMod.LOGGER.warn("MQTT connection lost: " + cause.getMessage());
+                    P2PConnectMod.LOGGER.warn("MQTT connection lost, will attempt to reconnect automatically: " + cause.getMessage());
                 }
                 @Override public void messageArrived(String topic, MqttMessage message) {
                     var listener = subscriptions.get(topic);
@@ -100,8 +131,14 @@ public class MqttService {
                     onMessage.accept(null);
                     return;
                 }
-                JsonObject obj = gson.fromJson(new String(payload, StandardCharsets.UTF_8), JsonObject.class);
-                onMessage.accept(obj);
+                try {
+                    JsonObject obj = gson.fromJson(new String(payload, StandardCharsets.UTF_8), JsonObject.class);
+                    onMessage.accept(obj);
+                } catch (Exception parseError) {
+                    // A malformed message on a shared public broker shouldn't break this listener for
+                    // every message after it - just log and move on.
+                    P2PConnectMod.LOGGER.warn("Ignoring malformed MQTT message on " + t + ": " + parseError.getMessage());
+                }
             };
             subscriptions.put(TOPIC_PREFIX + topic, listener);
             client.subscribe(TOPIC_PREFIX + topic, 1, listener);
@@ -125,8 +162,12 @@ public class MqttService {
                     onMessage.accept(key, null);
                     return;
                 }
-                JsonObject obj = gson.fromJson(new String(payload, StandardCharsets.UTF_8), JsonObject.class);
-                onMessage.accept(key, obj);
+                try {
+                    JsonObject obj = gson.fromJson(new String(payload, StandardCharsets.UTF_8), JsonObject.class);
+                    onMessage.accept(key, obj);
+                } catch (Exception parseError) {
+                    P2PConnectMod.LOGGER.warn("Ignoring malformed MQTT message on " + t + ": " + parseError.getMessage());
+                }
             };
             subscriptions.put(TOPIC_PREFIX + topicPattern, listener);
             client.subscribe(TOPIC_PREFIX + topicPattern, 1, listener);

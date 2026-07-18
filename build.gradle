@@ -70,73 +70,13 @@ dependencies {
     shadedApi 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
 }
 
-// ---------------------------------------------------------------------------
-// Bundle prebuilt "bore" (https://github.com/ekzhang/bore) binaries into the
-// mod jar for Windows/Linux/macOS, so players don't have to install bore
-// themselves. BoreManager still checks config/p2pconnect/bore(.exe) and PATH
-// first, so a manual install still works and always takes priority - this is
-// purely an additional convenience layer, not a required behavior change.
-//
-// NOTE: this downloads real files from github.com during the build, which
-// this assistant could not actually execute/verify end-to-end (no network
-// access to github.com from its own sandbox). The asset URLs below were
-// confirmed by browsing https://github.com/ekzhang/bore/releases directly,
-// and the "flatten to a fixed filename" copy spec below is written to be
-// tolerant of the archives' exact internal folder structure - but if this
-// task errors out on your first real CI run, that's the place to look.
-// Worst case, delete this block and manually install bore as before; nothing
-// else in the mod depends on this succeeding.
-// ---------------------------------------------------------------------------
-def boreVersion = '0.6.0'
-def boreCacheDir = layout.buildDirectory.dir('bore-cache').get().asFile
-def boreBinOutDir = layout.buildDirectory.dir('generated/boreBinResources').get().asFile
-
-def boreTargets = [
-        windows: [url: "https://github.com/ekzhang/bore/releases/download/v${boreVersion}/bore-v${boreVersion}-x86_64-pc-windows-msvc.zip",
-                  archiveType: 'zip', exeName: 'bore.exe'],
-        linux  : [url: "https://github.com/ekzhang/bore/releases/download/v${boreVersion}/bore-v${boreVersion}-x86_64-unknown-linux-musl.tar.gz",
-                  archiveType: 'tar.gz', exeName: 'bore'],
-        // Intel build - also runs on Apple Silicon via Rosetta 2, so one binary covers both.
-        macos  : [url: "https://github.com/ekzhang/bore/releases/download/v${boreVersion}/bore-v${boreVersion}-x86_64-apple-darwin.tar.gz",
-                  archiveType: 'tar.gz', exeName: 'bore']
-]
-
-tasks.register('fetchBoreBinaries') {
-    outputs.dir(boreBinOutDir)
-    doLast {
-        boreCacheDir.mkdirs()
-        boreTargets.each { platform, info ->
-            def ext = info.archiveType == 'zip' ? 'zip' : 'tar.gz'
-            def archiveFile = new File(boreCacheDir, "bore-${platform}.${ext}")
-            if (!archiveFile.exists()) {
-                logger.lifecycle("[p2pconnect] Downloading bore (${platform}) from ${info.url}")
-                ant.get(src: info.url, dest: archiveFile, skipexisting: true, verbose: false)
-            }
-
-            def platformOutDir = new File(boreBinOutDir, "bore-bin/${platform}")
-            platformOutDir.mkdirs()
-            def targetExe = new File(platformOutDir, info.exeName)
-            if (!targetExe.exists()) {
-                def treeSource = info.archiveType == 'zip' ? zipTree(archiveFile) : tarTree(resources.gzip(archiveFile))
-                copy {
-                    from treeSource
-                    include info.exeName
-                    into platformOutDir
-                    // Flattens whatever folder depth the archive uses internally down to a fixed filename,
-                    // so this doesn't depend on knowing the exact internal archive layout.
-                    eachFile { fcd -> fcd.path = info.exeName }
-                    includeEmptyDirs = false
-                }
-            }
-        }
-    }
-}
-
-sourceSets.main.resources.srcDir boreBinOutDir
-tasks.named('processResources').configure {
-    dependsOn tasks.named('fetchBoreBinaries')
-}
-// ---------------------------------------------------------------------------
+// NOTE: this project used to also bundle a prebuilt "bore" binary into the
+// jar at build time (fetchBoreBinaries task) so players wouldn't need to
+// install it manually. That was removed - a jar that quietly extracts and
+// runs an embedded, unsigned .exe at runtime is exactly the behavior
+// pattern antivirus heuristics flag as a "trojan dropper," and it was
+// getting the mod jar itself flagged on download. bore is a manual install
+// again (see BoreManager's class comment for where it looks for it).
 
 // Bundle Paho MQTT and its dependencies into the mod jar (relocated to avoid conflicts)
 shadowJar {

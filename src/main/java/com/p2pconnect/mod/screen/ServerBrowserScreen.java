@@ -50,7 +50,7 @@ public class ServerBrowserScreen extends Screen {
 
     private final Screen parent;
     private final Map<String, JsonObject> listings = new LinkedHashMap<>();
-    private String status = "§7Listening for public servers...";
+    private String status = "§7Connecting...";
 
     private String pendingJoinUsername = null;
     private EditBox passwordBox;
@@ -62,8 +62,34 @@ public class ServerBrowserScreen extends Screen {
 
     @Override
     protected void init() {
-        subscribe();
+        ensureConnectedThenSubscribe();
         rebuildRows();
+    }
+
+    /**
+     * This screen used to assume MQTT was already connected (true only if
+     * "P2P Connect" had been opened first) and would otherwise fail silently
+     * inside a try/catch - the list would just stay empty forever with no
+     * visible reason why, and Refresh looked unresponsive because it hit the
+     * exact same silent failure. This makes the connection state explicit.
+     */
+    private void ensureConnectedThenSubscribe() {
+        if (P2PConnectMod.MQTT.isConnected()) {
+            status = "§7Listening for public servers...";
+            subscribe();
+            return;
+        }
+        status = "§7Connecting to broker...";
+        P2PConnectMod.MQTT.connect(ClientConfig.mqttBrokerUrl,
+                () -> {
+                    status = "§7Listening for public servers...";
+                    subscribe();
+                    rebuildRows();
+                },
+                err -> {
+                    status = "§cCouldn't connect: " + err;
+                    rebuildRows();
+                });
     }
 
     private void subscribe() {
@@ -123,9 +149,11 @@ public class ServerBrowserScreen extends Screen {
 
     private void refresh() {
         listings.clear();
-        P2PConnectMod.MQTT.unsubscribePublicListings();
+        if (P2PConnectMod.MQTT.isConnected()) {
+            P2PConnectMod.MQTT.unsubscribePublicListings();
+        }
         status = "§7Refreshing...";
-        subscribe();
+        ensureConnectedThenSubscribe();
         rebuildRows();
     }
 
@@ -236,7 +264,9 @@ public class ServerBrowserScreen extends Screen {
 
     @Override
     public void onClose() {
-        P2PConnectMod.MQTT.unsubscribePublicListings();
+        if (P2PConnectMod.MQTT.isConnected()) {
+            P2PConnectMod.MQTT.unsubscribePublicListings();
+        }
         Minecraft.getInstance().setScreen(parent);
     }
 }

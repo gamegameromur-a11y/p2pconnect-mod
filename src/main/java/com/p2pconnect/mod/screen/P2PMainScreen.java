@@ -13,6 +13,8 @@ public class P2PMainScreen extends Screen {
     private final Screen parent;
     private static boolean listeningForRequests = false; // set up once per game session, then stays active
     private String statusText = "Connecting...";
+    private boolean connectionFailed = false;
+    private Button retryButton;
 
     public P2PMainScreen(Screen parent) {
         super(Component.literal("P2P Connect"));
@@ -43,11 +45,24 @@ public class P2PMainScreen extends Screen {
         this.addRenderableWidget(Button.builder(Component.literal("Back"), this::onClosePressed)
                 .bounds(this.width / 2 - 100, this.height / 2 + 48, 200, 20)
                 .build());
+
+        // Only shown when the broker connection actually failed - lets the player retry without
+        // having to close and reopen this whole menu.
+        retryButton = Button.builder(Component.literal("Retry Connection"), b -> {
+                    connectionFailed = false;
+                    retryButton.visible = false;
+                    ensureMqttConnected();
+                })
+                .bounds(this.width / 2 - 100, this.height / 2 + 74, 200, 20)
+                .build();
+        retryButton.visible = connectionFailed;
+        this.addRenderableWidget(retryButton);
     }
 
     private void ensureMqttConnected() {
         if (P2PConnectMod.MQTT.isConnected()) {
             statusText = "Connected: " + ClientConfig.mqttBrokerUrl;
+            connectionFailed = false;
             startListeningIfNeeded();
             return;
         }
@@ -55,9 +70,22 @@ public class P2PMainScreen extends Screen {
         P2PConnectMod.MQTT.connect(ClientConfig.mqttBrokerUrl,
                 () -> {
                     statusText = "Connected!";
+                    connectionFailed = false;
                     startListeningIfNeeded();
                 },
-                err -> statusText = "Error: " + err);
+                err -> {
+                    statusText = "Error: " + err;
+                    connectionFailed = true;
+                    if (retryButton != null) retryButton.visible = true;
+                });
+
+        P2PConnectMod.MQTT.setOnReconnected(() -> Minecraft.getInstance().execute(() -> {
+            statusText = "Reconnected: " + ClientConfig.mqttBrokerUrl;
+            if (Minecraft.getInstance().player != null) {
+                Minecraft.getInstance().player.displayClientMessage(
+                        Component.literal("§a[P2P Connect] Reconnected to the broker."), false);
+            }
+        }));
     }
 
     /** Listening for incoming requests is set up ONLY ONCE - then stays active until the game closes. */
@@ -82,7 +110,7 @@ public class P2PMainScreen extends Screen {
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         this.renderBackground(graphics);
         graphics.drawCenteredString(this.font, "P2P Connect", this.width / 2, this.height / 2 - 60, 0xFFFFFF);
-        graphics.drawCenteredString(this.font, statusText, this.width / 2, this.height / 2 - 48, 0xAAAAAA);
+        graphics.drawCenteredString(this.font, statusText, this.width / 2, this.height / 2 - 48, connectionFailed ? 0xFF5555 : 0xAAAAAA);
         super.render(graphics, mouseX, mouseY, partialTick);
     }
 

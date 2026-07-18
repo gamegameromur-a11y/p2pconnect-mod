@@ -21,14 +21,16 @@ import java.util.function.Consumer;
  * Honest security note: broker.hivemq.com is a shared, unauthenticated,
  * unencrypted public broker. Anyone can technically listen to any topic on
  * it. Treat usernames, descriptions, and "passwords" sent through it as
- * public information, not secrets.
+ * public information, not secrets. The username registry below is a
+ * best-effort courtesy check, not a real accounts system - see its comment.
  *
  * Topic schema - everything under the "p2pconnect/" prefix:
  *   host/{username}          -> (retained) hosting info JSON: {host, port, modlist, ts}, or empty "" once hosting stops
  *   request/{targetUsername} -> (not retained) request JSON: {from, ts, password?}
  *   response/{fromUsername}  -> (not retained) response JSON: {status: accepted|denied, host, port, modlist}
  *   publicListing/{username} -> (retained) public server browser entry JSON:
- *                                {host, port, modlist, description, passwordProtected, ts}, or empty "" when delisted
+ *                                {host, port, modlist, description, passwordProtected, online, ts}, or empty "" when fully delisted
+ *   registry/{username}      -> (retained) username claim JSON: {passwordHash, registeredAt}
  *
  * You can point config/p2pconnect.properties at your own broker if you'd
  * rather not share the default one.
@@ -247,6 +249,7 @@ public class MqttService {
         obj.addProperty("port", borePort);
         obj.addProperty("description", description == null ? "" : description);
         obj.addProperty("passwordProtected", passwordProtected);
+        obj.addProperty("online", true);
         obj.addProperty("ts", System.currentTimeMillis());
         var mods = new com.google.gson.JsonArray();
         modList.forEach(mods::add);
@@ -254,6 +257,30 @@ public class MqttService {
         publish("publicListing/" + username, obj, true);
     }
 
+    /**
+     * Re-publishes the same listing but flagged offline instead of removing
+     * it, for cases where the host went away without explicitly stopping
+     * (closed the game, crashed, etc.) - keeps it visible in the browser
+     * ("saved" servers), since re-hosting the same world is quick. Does
+     * nothing if there was no previous listing to begin with (last-known
+     * fields aren't known here, so the caller must have a listing to mark).
+     */
+    public void markListingOffline(String username, String boreHost, int borePort, List<String> modList,
+                                    String description, boolean passwordProtected) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("host", boreHost);
+        obj.addProperty("port", borePort);
+        obj.addProperty("description", description == null ? "" : description);
+        obj.addProperty("passwordProtected", passwordProtected);
+        obj.addProperty("online", false);
+        obj.addProperty("ts", System.currentTimeMillis());
+        var mods = new com.google.gson.JsonArray();
+        modList.forEach(mods::add);
+        obj.add("modlist", mods);
+        publish("publicListing/" + username, obj, true);
+    }
+
+    /** Fully removes the listing - used when the host explicitly stops broadcasting. */
     public void clearPublicListing(String username) {
         publish("publicListing/" + username, null, true);
     }
@@ -265,5 +292,54 @@ public class MqttService {
 
     public void unsubscribePublicListings() {
         unsubscribe("publicListing/+");
+    }
+
+    // ---- Username registry ----
+    // Honest scope note: there's no central server here, just a shared public
+    // broker with retained messages - this is a best-effort claim check, not
+    // a real accounts system. Two people claiming the exact same free
+    // username in the exact same instant could theoretically both succeed
+    // (no atomic compare-and-set is possible over plain MQTT). In normal use
+    // this is not something you'll run into.
+
+    /**
+     * Looks up "registry/{username}" and reports what's there.
+     * @param onResult called with the retained registration JSON ({passwordHash, registeredAt}),
+     *                  or null if the username is unclaimed. Always called eventually (after a
+     *                  short timeout if nothing is retained for that topic).
+     */
+    public void checkUsernameRegistration(String username, Consumer<JsonObject> onResult) {
+        String topic = "registry/" + username;
+        Object lock = new Object();
+        boolean[] responded = {false};
+
+        subscribe(topic, payload -> {
+            synchronized (lock) {
+                if (responded[0]) return;
+                responded[0] = true;
+            }
+            unsubscribe(topic);
+            onResult.accept(payload);
+        });
+
+        Thread timeoutThread = new Thread(() -> {
+            try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
+            synchronized (lock) {
+                if (responded[0]) return;
+                responded[0] = true;
+            }
+            unsubscribe(topic);
+            onResult.accept(null);
+        }, "username-check-timeout");
+        timeoutThread.setDaemon(true);
+        timeoutThread.start();
+    }
+
+    /** Claims (or re-confirms) a username with a password hash. Retained, so it acts as the registry entry. */
+    public void registerUsername(String username, String passwordHash) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("passwordHash", passwordHash);
+        obj.addProperty("registeredAt", System.currentTimeMillis());
+        publish("registry/" + username, obj, true);
     }
 }

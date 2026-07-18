@@ -8,8 +8,8 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 /**
- * Stores the username, MQTT broker address, and hosting preferences in
- * config/p2pconnect.properties. A public, unowned test broker
+ * Stores the username/account, MQTT broker address, and hosting preferences
+ * in config/p2pconnect.properties. A public, unowned test broker
  * (broker.hivemq.com) is used by default, so no extra setup is required -
  * you can point mqttBrokerUrl at your own (also free) broker if you want.
  */
@@ -19,6 +19,11 @@ public class ClientConfig {
     private static final Properties PROPS = new Properties();
 
     public static String username = "";
+    // Password protecting this username in the shared registry (see MqttService's
+    // registry/{username} topic) - separate from adminPasswordHash below, which
+    // instead gates the Manage Server panel for a specific hosted world.
+    public static String accountPasswordHash = "";
+
     // Public HiveMQ test broker by default - point this at your own (still free)
     // broker if you'd rather not share the default one with every other user.
     public static String mqttBrokerUrl = com.p2pconnect.mod.network.MqttService.DEFAULT_BROKER;
@@ -36,6 +41,7 @@ public class ClientConfig {
                     PROPS.load(in);
                 }
                 username = PROPS.getProperty("username", "");
+                accountPasswordHash = PROPS.getProperty("accountPasswordHash", "");
                 mqttBrokerUrl = PROPS.getProperty("mqttBrokerUrl", com.p2pconnect.mod.network.MqttService.DEFAULT_BROKER);
                 adminPasswordHash = PROPS.getProperty("adminPasswordHash", "");
                 serverDescription = PROPS.getProperty("serverDescription", "");
@@ -50,12 +56,13 @@ public class ClientConfig {
         try {
             Files.createDirectories(CONFIG_PATH.getParent());
             PROPS.setProperty("username", username);
+            PROPS.setProperty("accountPasswordHash", accountPasswordHash == null ? "" : accountPasswordHash);
             PROPS.setProperty("mqttBrokerUrl", mqttBrokerUrl);
             PROPS.setProperty("adminPasswordHash", adminPasswordHash == null ? "" : adminPasswordHash);
             PROPS.setProperty("serverDescription", serverDescription == null ? "" : serverDescription);
             PROPS.setProperty("publicListingEnabled", String.valueOf(publicListingEnabled));
             try (var out = Files.newOutputStream(CONFIG_PATH)) {
-                PROPS.store(out, "P2P Connect settings - username, MQTT broker address, hosting preferences");
+                PROPS.store(out, "P2P Connect settings - account, MQTT broker address, hosting preferences");
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -64,6 +71,10 @@ public class ClientConfig {
 
     public static boolean hasUsername() {
         return username != null && !username.isBlank();
+    }
+
+    public static boolean hasAccountPassword() {
+        return accountPasswordHash != null && !accountPasswordHash.isEmpty();
     }
 
     public static boolean hasAdminPassword() {

@@ -68,7 +68,7 @@ public class HostingUtil {
 
         mc.player.displayClientMessage(Component.literal("§7[P2P Connect] World opened to LAN, tunnelling out with bore..."), false);
 
-        // NOTE: everything inside this callback runs on bore's own background
+        // NOTE: everything inside these callbacks runs on bore's own background
         // reader thread, NOT the Minecraft client thread - that's why the
         // UI-facing bits below are wrapped in mc.execute(...).
         P2PConnectMod.BORE.start(localPort, borePort -> {
@@ -91,7 +91,19 @@ public class HostingUtil {
                 mc.player.displayClientMessage(Component.literal("§a[P2P Connect] Live! Your connection ID: §f" + id), false);
                 onIdReady.accept(id);
             });
-        }, error -> mc.execute(() -> onError.accept(error)));
+        }, error -> mc.execute(() -> onError.accept(error)),
+        () -> mc.execute(() -> {
+            // bore died on its own (crash, killed by antivirus, lost network, etc.) - without this,
+            // the player would have no way of knowing they'd silently stopped being reachable.
+            activeBorePort = -1;
+            P2PConnectMod.MQTT.stopHosting(ClientConfig.username);
+            P2PConnectMod.MQTT.clearPublicListing(ClientConfig.username);
+            if (mc.player != null) {
+                mc.player.displayClientMessage(Component.literal(
+                        "§c[P2P Connect] The bore tunnel closed unexpectedly - hosting has stopped. " +
+                                "Check your antivirus/firewall, then use Start Broadcast to try again."), false);
+            }
+        }));
     }
 
     public static void stopHosting() {

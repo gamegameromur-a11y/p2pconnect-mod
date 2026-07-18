@@ -102,19 +102,21 @@ public class HostingUtil {
      * Called (already on the main thread) when bore dies on its own while we
      * still think we're hosting. If the world is still open, this is a
      * genuine crash (antivirus, lost network, etc.) - try to bring hosting
-     * back up automatically a few times before giving up, so a "keep it open
-     * until I close it" server actually stays open through transient
-     * failures instead of silently going dark. If the world already closed
-     * (the player quit normally), there's nothing to restart - just clean up.
+     * back up automatically a few times before giving up. Either way, the
+     * public listing (if any) is only ever marked offline here, never fully
+     * removed - re-hosting the same world is quick, so it stays "saved" in
+     * the browser instead of vanishing. Only an explicit Stop Broadcast
+     * removes it entirely.
      */
     private static void handleUnexpectedExit(java.util.function.Consumer<String> onError) {
         Minecraft mc = Minecraft.getInstance();
+        int lastPort = activeBorePort;
         activeBorePort = -1;
 
         boolean stillInWorld = mc.level != null && mc.getSingleplayerServer() != null;
         if (!stillInWorld) {
             P2PConnectMod.MQTT.stopHosting(ClientConfig.username);
-            P2PConnectMod.MQTT.clearPublicListing(ClientConfig.username);
+            markOfflineIfListed(lastPort);
             return;
         }
 
@@ -128,7 +130,7 @@ public class HostingUtil {
             startHostingCurrentWorld(null, id -> {}, onError);
         } else {
             P2PConnectMod.MQTT.stopHosting(ClientConfig.username);
-            P2PConnectMod.MQTT.clearPublicListing(ClientConfig.username);
+            markOfflineIfListed(lastPort);
             if (mc.player != null) {
                 mc.player.displayClientMessage(Component.literal(
                         "§c[P2P Connect] The bore tunnel keeps dropping - gave up after " + MAX_AUTO_RESTARTS +
@@ -137,12 +139,34 @@ public class HostingUtil {
         }
     }
 
+    private static void markOfflineIfListed(int lastPort) {
+        if (!ClientConfig.publicListingEnabled || lastPort <= 0) return;
+        P2PConnectMod.MQTT.markListingOffline(ClientConfig.username, "bore.pub", lastPort, ModListUtil.getInstalledMods(),
+                ClientConfig.serverDescription, ClientConfig.hasAdminPassword());
+    }
+
+    /** Explicit "Stop Broadcast" - fully removes the public listing, unlike the automatic cleanup paths above. */
     public static void stopHosting() {
         activeBorePort = -1;
         consecutiveAutoRestartFailures = 0;
         P2PConnectMod.BORE.stop();
         P2PConnectMod.MQTT.stopHosting(ClientConfig.username);
         P2PConnectMod.MQTT.clearPublicListing(ClientConfig.username);
+    }
+
+    /**
+     * Same cleanup as an unexpected exit, but for when AutoHostTrigger
+     * notices the world itself closed (Save & Quit, etc.) while we were
+     * still hosting it and bore hadn't already reported the drop on its own.
+     * Marks the listing offline rather than removing it, same reasoning as
+     * {@link #handleUnexpectedExit}.
+     */
+    public static void handleWorldClosedWhileHosting() {
+        int lastPort = activeBorePort;
+        activeBorePort = -1;
+        P2PConnectMod.BORE.stop();
+        P2PConnectMod.MQTT.stopHosting(ClientConfig.username);
+        markOfflineIfListed(lastPort);
     }
 
     /**

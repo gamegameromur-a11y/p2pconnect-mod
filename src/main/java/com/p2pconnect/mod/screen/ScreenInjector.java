@@ -50,9 +50,14 @@ public class ScreenInjector {
         }
     }
 
+    /** True once both a username AND its password have been set up - a bare username alone isn't a complete account anymore. */
+    private boolean hasAccount() {
+        return ClientConfig.hasUsername() && ClientConfig.hasAccountPassword();
+    }
+
     private void openEntryPoint() {
         Minecraft mc = Minecraft.getInstance();
-        if (!ClientConfig.hasUsername()) {
+        if (!hasAccount()) {
             mc.setScreen(new UsernamePromptScreen(mc.screen));
         } else {
             mc.setScreen(new P2PMainScreen(mc.screen));
@@ -61,7 +66,7 @@ public class ScreenInjector {
 
     private void openServerBrowser() {
         Minecraft mc = Minecraft.getInstance();
-        if (!ClientConfig.hasUsername()) {
+        if (!hasAccount()) {
             mc.setScreen(new UsernamePromptScreen(mc.screen));
         } else {
             mc.setScreen(new ServerBrowserScreen(mc.screen));

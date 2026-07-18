@@ -44,6 +44,20 @@ import java.util.function.Consumer;
  * receiving join requests with no visible error. MqttCallbackExtended's
  * connectComplete(reconnect, ...) is used below specifically to replay every
  * tracked subscription after a reconnect.
+ *
+ * Classloader note: Paho looks up its TCP/SSL/WebSocket support via
+ * java.util.ServiceLoader, reading META-INF/services/...NetworkModuleFactory
+ * off of Thread.currentThread().getContextClassLoader() by default. Forge's
+ * mod classloading means the Minecraft client thread's context classloader
+ * isn't necessarily the one that loaded this jar's classes, so that lookup
+ * can fail with "no NetworkModule installed for scheme tcp" even though
+ * everything is present and correctly packaged - this is a well-documented
+ * Paho issue in other nested-classloader environments too (Android,
+ * Quarkus native, ProGuard/R8-shrunk apps - see
+ * https://github.com/eclipse-paho/paho.mqtt.java/issues/572 and
+ * https://github.com/quarkusio/quarkus/issues/10775). The fix is to point
+ * the context classloader at this class's own classloader for the duration
+ * of the MqttClient construction, then restore whatever it was before.
  */
 public class MqttService {
 
@@ -65,7 +79,14 @@ public class MqttService {
     }
 
     public void connect(String brokerUrl, Runnable onConnected, Consumer<String> onError) {
+        Thread currentThread = Thread.currentThread();
+        ClassLoader previousClassLoader = currentThread.getContextClassLoader();
         try {
+            // See the "Classloader note" above - without this, MqttClient's constructor can throw
+            // "no NetworkModule installed for scheme tcp" even though the client and its
+            // META-INF/services entry are both right there on this class's classpath.
+            currentThread.setContextClassLoader(MqttService.class.getClassLoader());
+
             String clientId = "p2pconnect-" + Long.toHexString(System.nanoTime());
             client = new MqttClient(brokerUrl == null || brokerUrl.isBlank() ? DEFAULT_BROKER : brokerUrl,
                     clientId, new MemoryPersistence());
@@ -105,6 +126,10 @@ public class MqttService {
             onConnected.run();
         } catch (Exception e) {
             onError.accept("Could not connect to the MQTT broker: " + e.getMessage());
+        } finally {
+            // Don't leave the calling thread (the Minecraft main thread) with a classloader it
+            // didn't have before - only this connection setup needed the override.
+            currentThread.setContextClassLoader(previousClassLoader);
         }
     }
 

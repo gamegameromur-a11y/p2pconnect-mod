@@ -17,10 +17,11 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
  *
  * 2. If the player leaves the world they were hosting (Save & Quit, crash to
  *    menu, etc.) without using "Stop Broadcast" first, this notices the
- *    world is gone and cleans up the MQTT host/public listing records so
- *    they don't stay stuck showing a "live" server that no longer exists.
- *    (HostingUtil's own crash-recovery handles bore dying while the world is
- *    still open; this handles the world itself going away.)
+ *    world is gone and cleans up - marking the public listing offline
+ *    (rather than removing it) instead of leaving it stuck showing a "live"
+ *    server that no longer exists. (HostingUtil's own crash-recovery handles
+ *    bore dying while the world is still open; this handles the world
+ *    itself going away.)
  */
 public class AutoHostTrigger {
 
@@ -35,7 +36,7 @@ public class AutoHostTrigger {
         boolean inWorld = mc.level != null && mc.getSingleplayerServer() != null;
 
         if (wasHostingLastTick && HostingUtil.isHosting() && !inWorld) {
-            HostingUtil.stopHosting();
+            HostingUtil.handleWorldClosedWhileHosting();
         }
         wasHostingLastTick = HostingUtil.isHosting();
 

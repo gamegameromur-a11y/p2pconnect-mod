@@ -15,6 +15,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,11 @@ import java.util.Map;
  * Listings arrive over MQTT as retained messages, so anything already live
  * shows up immediately when this screen opens; new/stopped servers update
  * the list live while it's open.
+ *
+ * A listing stays visible even after its host goes offline (marked with an
+ * "online" flag rather than removed) - re-hosting the same world is quick,
+ * so this works like a "saved servers" list. Only an explicit Stop Broadcast
+ * on the host's side removes an entry entirely.
  *
  * Honest scope note: this only reflects what hosts voluntarily publish to a
  * public, unauthenticated MQTT topic. A "password protected" tag here is a
@@ -103,6 +109,12 @@ public class ServerBrowserScreen extends Screen {
         }));
     }
 
+    private static boolean isOnline(JsonObject listing) {
+        // Older listings published before the online/offline distinction existed don't have this
+        // field - treat those as online so nothing regresses.
+        return !listing.has("online") || listing.get("online").getAsBoolean();
+    }
+
     private void rebuildRows() {
         this.clearWidgets();
         int cx = this.width / 2;
@@ -132,16 +144,22 @@ public class ServerBrowserScreen extends Screen {
                 .bounds(cx + 54, cy + TOOLBAR_Y, 100, 20)
                 .build());
 
+        // Online servers first, then offline ("saved") ones.
         List<String> names = new ArrayList<>(listings.keySet());
+        names.sort(Comparator.comparing((String u) -> !isOnline(listings.get(u))));
+
         int shown = Math.min(names.size(), MAX_VISIBLE_ROWS);
         for (int i = 0; i < shown; i++) {
             String username = names.get(i);
             JsonObject listing = listings.get(username);
             int rowY = cy + LIST_TOP_Y + (i * ROW_HEIGHT);
             boolean isProtected = listing.has("passwordProtected") && listing.get("passwordProtected").getAsBoolean();
+            boolean online = isOnline(listing);
 
-            String label = username + (isProtected ? "  [locked]" : "");
-            this.addRenderableWidget(Button.builder(Component.literal(label), b -> tryJoin(username))
+            StringBuilder label = new StringBuilder(username);
+            if (isProtected) label.append("  [locked]");
+            label.append(online ? "" : "  §8(offline)");
+            this.addRenderableWidget(Button.builder(Component.literal(label.toString()), b -> tryJoin(username))
                     .bounds(cx - 154, rowY, 308, 20)
                     .build());
         }
@@ -183,7 +201,7 @@ public class ServerBrowserScreen extends Screen {
                 if (st.equals("accepted")) {
                     handleAccepted(username, response);
                 } else {
-                    status = "§c" + username + " declined the request (wrong password?).";
+                    status = "§c" + username + " declined the request (wrong password, or offline?).";
                     rebuildRows();
                 }
             });
@@ -200,6 +218,9 @@ public class ServerBrowserScreen extends Screen {
     }
 
     private void connectDirect(String username, JsonObject listing) {
+        if (!isOnline(listing)) {
+            status = "§e" + username + "'s server is marked offline right now - trying anyway...";
+        }
         String host = listing.get("host").getAsString();
         int port = listing.get("port").getAsInt();
         JsonArray modlist = listing.has("modlist") ? listing.getAsJsonArray("modlist") : null;

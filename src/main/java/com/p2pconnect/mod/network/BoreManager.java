@@ -35,13 +35,23 @@ public class BoreManager {
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*m");
 
     private Process boreProcess;
+    private volatile boolean stoppedIntentionally = false;
 
     public boolean isRunning() {
         return boreProcess != null && boreProcess.isAlive();
     }
 
-    public void start(int localPort, Consumer<Integer> onPortAssigned, Consumer<String> onError) {
+    /**
+     * @param onPortAssigned  runs on bore's own reader thread once bore.pub assigns the external port
+     * @param onError         called on startup failure (binary not found, process couldn't start)
+     * @param onUnexpectedExit called (on bore's reader thread) if the process exits on its own AFTER
+     *                          having started successfully - e.g. it crashed, lost its own network
+     *                          connection, or was killed by something external (antivirus, OOM, etc).
+     *                          Not called after a normal stop().
+     */
+    public void start(int localPort, Consumer<Integer> onPortAssigned, Consumer<String> onError, Runnable onUnexpectedExit) {
         stop();
+        stoppedIntentionally = false;
         try {
             String exe = findBoreExecutable();
             if (exe == null) {
@@ -55,10 +65,10 @@ public class BoreManager {
             boreProcess = pb.start();
 
             Thread readerThread = new Thread(() -> {
+                boolean assigned = false;
                 try (BufferedReader reader = new BufferedReader(
                         new InputStreamReader(boreProcess.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
-                    boolean assigned = false;
                     while ((line = reader.readLine()) != null) {
                         String cleanLine = ANSI_PATTERN.matcher(line).replaceAll("");
                         P2PConnectMod.LOGGER.info("[bore] " + cleanLine);
@@ -74,6 +84,13 @@ public class BoreManager {
                 } catch (Exception e) {
                     P2PConnectMod.LOGGER.warn("Error reading bore output: " + e.getMessage());
                 }
+
+                // The read loop above only ends when bore's stdout closes, which happens when the
+                // process exits (normally or otherwise). If we didn't ask it to stop, that's a crash.
+                if (assigned && !stoppedIntentionally && onUnexpectedExit != null) {
+                    P2PConnectMod.LOGGER.warn("bore exited unexpectedly while hosting was active");
+                    onUnexpectedExit.run();
+                }
             }, "bore-output-reader");
             readerThread.setDaemon(true);
             readerThread.start();
@@ -84,6 +101,7 @@ public class BoreManager {
     }
 
     public void stop() {
+        stoppedIntentionally = true;
         if (boreProcess != null && boreProcess.isAlive()) {
             boreProcess.destroy();
         }

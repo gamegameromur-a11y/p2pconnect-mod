@@ -45,19 +45,19 @@ import java.util.function.Consumer;
  * connectComplete(reconnect, ...) is used below specifically to replay every
  * tracked subscription after a reconnect.
  *
- * Classloader note: Paho looks up its TCP/SSL/WebSocket support via
- * java.util.ServiceLoader, reading META-INF/services/...NetworkModuleFactory
- * off of Thread.currentThread().getContextClassLoader() by default. Forge's
- * mod classloading means the Minecraft client thread's context classloader
- * isn't necessarily the one that loaded this jar's classes, so that lookup
- * can fail with "no NetworkModule installed for scheme tcp" even though
- * everything is present and correctly packaged - this is a well-documented
- * Paho issue in other nested-classloader environments too (Android,
- * Quarkus native, ProGuard/R8-shrunk apps - see
- * https://github.com/eclipse-paho/paho.mqtt.java/issues/572 and
- * https://github.com/quarkusio/quarkus/issues/10775). The fix is to point
- * the context classloader at this class's own classloader for the duration
- * of the MqttClient construction, then restore whatever it was before.
+ * "no NetworkModule installed for scheme tcp" history: this used to happen
+ * on every connection attempt. The actual root cause was that Paho was being
+ * relocated (org.eclipse.paho -> com.p2pconnect.shaded.paho) in build.gradle
+ * to avoid clashing with other mods, but Paho's NetworkModuleService looks
+ * up its TCP/SSL support via
+ * ServiceLoader.load(NetworkModuleFactory.class, NetworkModuleService.class.getClassLoader())
+ * - a META-INF/services file whose name AND contents both encode the
+ * relocated package name, and that mapping didn't survive Shadow's
+ * relocation + Forge's reobf step intact. The fix is in build.gradle: Paho
+ * is no longer relocated. The context-classloader override still present in
+ * connect() below turned out not to be the actual fix (Paho 1.2.5 doesn't
+ * use the thread's context classloader at all - it uses its own class's
+ * classloader) but is left in as a harmless defensive measure.
  */
 public class MqttService {
 
@@ -82,9 +82,6 @@ public class MqttService {
         Thread currentThread = Thread.currentThread();
         ClassLoader previousClassLoader = currentThread.getContextClassLoader();
         try {
-            // See the "Classloader note" above - without this, MqttClient's constructor can throw
-            // "no NetworkModule installed for scheme tcp" even though the client and its
-            // META-INF/services entry are both right there on this class's classpath.
             currentThread.setContextClassLoader(MqttService.class.getClassLoader());
 
             String clientId = "p2pconnect-" + Long.toHexString(System.nanoTime());
@@ -125,6 +122,9 @@ public class MqttService {
             client.connect(options);
             onConnected.run();
         } catch (Exception e) {
+            // Log the full exception (with stack trace) to latest.log, not just the short message
+            // shown in the UI - a truncated on-screen string isn't enough to diagnose a real bug.
+            P2PConnectMod.LOGGER.error("MQTT connect() failed", e);
             onError.accept("Could not connect to the MQTT broker: " + e.getMessage());
         } finally {
             // Don't leave the calling thread (the Minecraft main thread) with a classloader it

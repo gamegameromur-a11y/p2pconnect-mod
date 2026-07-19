@@ -78,11 +78,26 @@ dependencies {
 // getting the mod jar itself flagged on download. bore is a manual install
 // again (see BoreManager's class comment for where it looks for it).
 
-// Bundle Paho MQTT and its dependencies into the mod jar (relocated to avoid conflicts)
+// Bundle Paho MQTT and its dependencies into the mod jar.
+//
+// IMPORTANT: Paho is NOT relocated (no `relocate` call) anymore. It used to
+// be relocated to com.p2pconnect.shaded.paho to avoid clashing with other
+// mods that might also bundle Paho, but Paho discovers its TCP/SSL/WebSocket
+// support via java.util.ServiceLoader, which depends on a META-INF/services
+// file whose NAME AND CONTENTS both encode the fully-qualified interface/
+// class names involved. Relocating that correctly requires Shadow's service
+// file merging to interact cleanly with Forge's own reobf step afterwards,
+// and in practice that combination broke it: MqttClient threw
+// "no NetworkModule installed for scheme tcp" even though every class and
+// resource was present in the jar, just not where relocated ServiceLoader
+// lookups expected them. Leaving Paho unrelocated sidesteps that whole
+// fragile chain. Trade-off: if another installed mod also bundles Paho
+// unrelocated, there's a small chance of a classpath/version clash - far
+// less likely in practice than the guaranteed breakage this fixes.
 shadowJar {
     configurations = [project.configurations.shadedApi]
     archiveClassifier.set('all')
-    relocate 'org.eclipse.paho', 'com.p2pconnect.shaded.paho'
+    mergeServiceFiles()
 }
 
 // Let reobf (Forge's own remapping system) process the shadowJar output
